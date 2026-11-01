@@ -62,3 +62,7 @@ See [the license](LICENSE) for further details
 ## Contributing
 
 Contributes are welcome and much appreciated, please read the [contributing guide](CONTRIBUTING.md) for further information.
+
+## Windows Rescue
+
+This repository also contains [Windows Rescue](windows-rescue/README.md), a toolkit for repairing Windows PCs (SFC, DISM, network reset, Windows Update reset, cleanup, recovery and diagnostics).
