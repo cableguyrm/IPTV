@@ -1,3 +1,5 @@
+> **New:** the `web/` directory contains **BTN TV STREAMZ**, a full-stack IPTV reseller marketplace and subscription-management platform. See [`web/README.md`](web/README.md). The legacy Python crawler below is deprecated and unrelated to it.
+
 # IPTV. [DEPRECATED] 
 
 ## Disclaimer

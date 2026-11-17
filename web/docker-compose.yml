@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: btn
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-btn_dev_pw}
+      POSTGRES_DB: btntv
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "btn"], interval: 5s, retries: 10 }
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://btn:${POSTGRES_PASSWORD:-btn_dev_pw}@db:5432/btntv
+    ports: ["3000:3000"]
+    depends_on: { db: { condition: service_healthy } }
+volumes:
+  pgdata:
