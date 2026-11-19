@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>J.A.R.V.I.S.</title>
+  <meta name="description" content="A private, on-device AI assistant. Runs entirely on your phone.">
+  <meta name="theme-color" content="#04080f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jarvis">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">J.A.R.V.I.S.</span>
+      <span id="status-pill" class="pill">Offline core</span>
+    </div>
+    <div class="top-actions">
+      <button id="install-btn" class="icon-btn" hidden aria-label="Install app" title="Install">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>
+      </button>
+      <button id="settings-btn" class="icon-btn" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="reactor-wrap">
+      <button id="reactor" class="reactor" data-state="idle" aria-label="Tap to talk">
+        <span class="ring r1"></span>
+        <span class="ring r2"></span>
+        <span class="ring r3"></span>
+        <span class="core"></span>
+      </button>
+      <p id="state-label" class="state-label">Tap the core to speak</p>
+      <div id="load-bar" class="load-bar" hidden><div id="load-fill"></div><span id="load-text"></span></div>
+    </section>
+
+    <section id="log" class="log" aria-live="polite"></section>
+  </main>
+
+  <form id="composer" class="composer" autocomplete="off">
+    <input id="input" type="text" placeholder="Ask Jarvis anything…" enterkeyhint="send">
+    <button id="mic-btn" type="button" class="round-btn" aria-label="Voice input">
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <button id="send-btn" type="submit" class="round-btn accent" aria-label="Send">
+      <svg viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></svg>
+    </button>
+  </form>
+
+  <dialog id="settings">
+    <form method="dialog" class="sheet">
+      <div class="sheet-head">
+        <h2>Systems</h2>
+        <button class="icon-btn" value="close" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+
+      <fieldset>
+        <legend>AI brain (runs on this phone)</legend>
+        <p id="gpu-note" class="note"></p>
+        <label>Model
+          <select id="model-select"></select>
+        </label>
+        <div class="row">
+          <button type="button" id="load-model-btn" class="btn accent">Download &amp; load</button>
+          <button type="button" id="delete-model-btn" class="btn">Delete from phone</button>
+        </div>
+        <label class="check"><input type="checkbox" id="autoload"> Load the brain automatically on start</label>
+        <p id="storage-note" class="note"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Voice</legend>
+        <label>Voice
+          <select id="voice-select"></select>
+        </label>
+        <label>Speed <input type="range" id="rate" min="0.6" max="1.6" step="0.05"></label>
+        <label>Pitch <input type="range" id="pitch" min="0.5" max="1.5" step="0.05"></label>
+        <label class="check"><input type="checkbox" id="speak-replies"> Speak replies out loud</label>
+        <label class="check"><input type="checkbox" id="wake-word"> Always listening for “Jarvis” (while app is open)</label>
+        <button type="button" id="test-voice" class="btn">Test voice</button>
+      </fieldset>
+
+      <fieldset>
+        <legend>You</legend>
+        <label>Your name <input type="text" id="user-name" placeholder="e.g. Tony"></label>
+        <label>How Jarvis addresses you <input type="text" id="user-title" placeholder="sir"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Data</legend>
+        <div class="row">
+          <button type="button" id="clear-chat" class="btn">Clear conversation</button>
+          <button type="button" id="clear-all" class="btn danger">Erase all memory</button>
+        </div>
+        <p class="note">Everything (chat, notes, settings, the AI model) is stored only on this device.</p>
+      </fieldset>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
