@@ -8,7 +8,9 @@ export const MODELS = [
   { base: "Qwen2.5-1.5B-Instruct", label: "Qwen 2.5 1.5B — smarter, ~1.0 GB" },
   { base: "Qwen3-1.7B", label: "Qwen 3 1.7B — smarter, ~1.1 GB" },
   { base: "gemma-2-2b-it", label: "Gemma 2 2B — strong writer, ~1.4 GB (high-end phones)" },
-  { base: "Llama-3.2-3B-Instruct", label: "Llama 3.2 3B — most capable, ~1.8 GB (flagship phones only, may crash)" },
+  { base: "Llama-3.2-3B-Instruct", label: "Llama 3.2 3B — capable, ~1.8 GB (flagship phones)" },
+  { base: "Qwen3-4B", label: "Qwen 3 4B — very smart, ~2.3 GB (flagship phones, 12 GB+ RAM)" },
+  { base: "Llama-3.1-8B-Instruct", label: "Llama 3.1 8B — experimental, ~4.6 GB (16 GB+ RAM)" },
 ];
 export const DEFAULT_MODEL = "Llama-3.2-1B-Instruct";
 
@@ -54,9 +56,21 @@ export async function unload() {
   loadedId = null;
 }
 
-export async function load(base, onProgress) {
+// Only one load at a time: a second call waits for the first instead of
+// putting a second copy of the model in GPU memory.
+let loading = null;
+export function load(base, onProgress) {
   const id = modelId(base);
-  if (engine && loadedId === id) return;
+  if (engine && loadedId === id) return Promise.resolve();
+  if (loading) return loading.id === id ? loading.p : loading.p.catch(() => {}).then(() => load(base, onProgress));
+  const p = doLoad(base, onProgress).finally(() => { loading = null; });
+  loading = { id, p };
+  return p;
+}
+export const isLoading = () => !!loading;
+
+async function doLoad(base, onProgress) {
+  const id = modelId(base);
   await unload();
   const { CreateWebWorkerMLCEngine } = await lib();
   worker = new Worker(new URL("./llm-worker.js", import.meta.url), { type: "module" });

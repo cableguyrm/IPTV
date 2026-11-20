@@ -224,7 +224,11 @@ async function handle(text, fromVoice = false) {
 }
 
 // ---------------- Model loading ----------------
-async function loadBrain() {
+let brainLoad = null;
+function loadBrain() {
+  return (brainLoad ??= loadBrainInner().finally(() => { brainLoad = null; }));
+}
+async function loadBrainInner() {
   if (!gpu.ok) { addMsg("sys", gpu.reason); return; }
   const cached = await brain.isCached(settings.model);
   els.loadBar.hidden = false;
