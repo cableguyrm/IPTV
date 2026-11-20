@@ -107,6 +107,24 @@ function askNotify() {
   try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch { /* ignore */ }
 }
 
+// ---------------- GPU loss recovery ----------------
+brain.onLost((why) => {
+  console.warn("GPU lost:", why);
+  setPill();
+  addMsg("sys", `The phone's GPU reset and dropped the AI brain${shortReason(why)}. I'll reload it for your next question.`);
+  if (!busy && settings.autoload && !document.hidden) loadBrain();
+});
+function shortReason(t) {
+  const m = String(t || "").match(/reason[^a-z]*([a-z_]+)|message[":\s]+([^"}]{3,120})/i);
+  const r = m ? (m[1] || m[2]) : "";
+  return r ? ` (${r.trim()})` : "";
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !brain.isLoaded() && !busy && gpu.ok && settings.autoload && lostOnce) loadBrain();
+});
+let lostOnce = false;
+brain.onLost(() => { lostOnce = true; });
+
 // ---------------- Speech output ----------------
 let speakingNow = false;
 voice.onSpeakingChange((on) => { speakingNow = on; refreshIdle(); });
@@ -213,9 +231,10 @@ async function handle(text, fromVoice = false) {
       brain.forget();
       setPill();
       const big = /3B|2b|1\.5B|1\.7B/i.test(settings.model);
-      addMsg("bot", `The AI brain keeps crashing on this phone's GPU${big ? " — this model is probably too large for it" : ""}. ${big ? "Open ⚙ Settings, choose “Llama 3.2 1B” or “Qwen 2.5 0.5B”, and tap Download & load." : "Close other apps and try again, or pick a smaller model in ⚙ Settings."}`);
+      const why = brain.lastError() ? `\n\nGPU said: ${brain.lastError().slice(0, 200)}` : "";
+      addMsg("bot", `The AI brain keeps crashing on this phone's GPU${big ? " — this model is probably too large for it" : ""}. ${big ? "Open ⚙ Settings, choose “Llama 3.2 1B” or “Qwen 2.5 0.5B”, and tap Download & load." : "Close other apps and try again, or pick a smaller model in ⚙ Settings."}${why}`);
     } else {
-      addMsg("bot", `I ran into a problem: ${e.message || e}`);
+      addMsg("bot", `I ran into a problem: ${e.message || e}${brain.lastError() ? `\n\nGPU said: ${brain.lastError().slice(0, 200)}` : ""}`);
     }
   } finally {
     busy = false;

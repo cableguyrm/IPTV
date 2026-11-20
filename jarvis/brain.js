@@ -76,9 +76,24 @@ async function doLoad(base, onProgress) {
   worker = new Worker(new URL("./llm-worker.js", import.meta.url), { type: "module" });
   engine = await CreateWebWorkerMLCEngine(worker, id, {
     initProgressCallback: (r) => onProgress?.(r.progress ?? 0, r.text ?? ""),
+  }, {
+    // Smaller GPU jobs: mobile drivers reset the GPU if one job runs too long.
+    prefill_chunk_size: 128,
   });
   loadedId = id;
 }
+
+// GPU diagnostics from the worker (see llm-worker.js).
+let lastGpuError = "";
+const lostListeners = new Set();
+export const onLost = (fn) => lostListeners.add(fn);
+export const lastError = () => lastGpuError;
+try {
+  new BroadcastChannel("jarvis-gpu").onmessage = ({ data }) => {
+    if (data.level === "error") lastGpuError = data.text;
+    if (data.lost && engine) { forget(); lostListeners.forEach((fn) => fn(data.text)); }
+  };
+} catch { /* BroadcastChannel unsupported */ }
 
 // True when the GPU context died (out of memory, app backgrounded, driver reset).
 export function isLostError(e) {

@@ -1,6 +1,6 @@
 // Caches the app shell so Jarvis opens with no internet.
 // AI model weights are cached separately by WebLLM (Cache Storage).
-const VERSION = "jarvis-v2";
+const VERSION = "jarvis-v3";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "skills.js", "store.js", "brain.js", "voice.js",
   "llm-worker.js", "vendor/web-llm.js", "manifest.webmanifest",
