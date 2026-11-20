@@ -7,8 +7,8 @@ export const MODELS = [
   { base: "Qwen3-0.6B", label: "Qwen 3 0.6B — small & smart, ~0.5 GB" },
   { base: "Qwen2.5-1.5B-Instruct", label: "Qwen 2.5 1.5B — smarter, ~1.0 GB" },
   { base: "Qwen3-1.7B", label: "Qwen 3 1.7B — smarter, ~1.1 GB" },
-  { base: "gemma-2-2b-it", label: "Gemma 2 2B — strong writer, ~1.4 GB (6 GB+ RAM)" },
-  { base: "Llama-3.2-3B-Instruct", label: "Llama 3.2 3B — most capable, ~1.8 GB (8 GB+ RAM)" },
+  { base: "gemma-2-2b-it", label: "Gemma 2 2B — strong writer, ~1.4 GB (high-end phones)" },
+  { base: "Llama-3.2-3B-Instruct", label: "Llama 3.2 3B — most capable, ~1.8 GB (flagship phones only, may crash)" },
 ];
 export const DEFAULT_MODEL = "Llama-3.2-1B-Instruct";
 
@@ -16,6 +16,7 @@ let webllm = null;
 let engine = null;
 let loadedId = null;
 let f16 = null;
+let worker = null;
 
 const lib = async () => (webllm ??= await import("./vendor/web-llm.js"));
 
@@ -47,6 +48,8 @@ export async function deleteModel(base) {
 
 export async function unload() {
   try { await engine?.unload(); } catch { /* ignore */ }
+  try { worker?.terminate(); } catch { /* ignore */ }
+  worker = null;
   engine = null;
   loadedId = null;
 }
@@ -56,11 +59,26 @@ export async function load(base, onProgress) {
   if (engine && loadedId === id) return;
   await unload();
   const { CreateWebWorkerMLCEngine } = await lib();
-  const worker = new Worker(new URL("./llm-worker.js", import.meta.url), { type: "module" });
+  worker = new Worker(new URL("./llm-worker.js", import.meta.url), { type: "module" });
   engine = await CreateWebWorkerMLCEngine(worker, id, {
     initProgressCallback: (r) => onProgress?.(r.progress ?? 0, r.text ?? ""),
   });
   loadedId = id;
+}
+
+// True when the GPU context died (out of memory, app backgrounded, driver reset).
+export function isLostError(e) {
+  return /disposed|device (was |is )?lost|devicelost|instance reference no longer exists|GPUDevice|out of memory|OOM|context lost|Aborted\(/i.test(String(e?.message || e));
+}
+
+// Forget a dead engine without touching it (calling into it would throw again).
+export function forget() {
+  const w = engine;
+  engine = null;
+  loadedId = null;
+  try { w?.unload?.().catch?.(() => {}); } catch { /* ignore */ }
+  try { worker?.terminate(); } catch { /* ignore */ }
+  worker = null;
 }
 
 export function interrupt() { try { engine?.interruptGenerate(); } catch { /* ignore */ } }
@@ -68,6 +86,15 @@ export function interrupt() { try { engine?.interruptGenerate(); } catch { /* ig
 // Streams a reply. onToken receives the visible text so far.
 export async function chat(messages, onToken) {
   if (!engine) throw new Error("Model not loaded");
+  try {
+    return await chatInner(messages, onToken);
+  } catch (e) {
+    if (isLostError(e)) { forget(); e.lost = true; }
+    throw e;
+  }
+}
+
+async function chatInner(messages, onToken) {
   const isQwen3 = loadedId.startsWith("Qwen3");
   const stream = await engine.chat.completions.create({
     messages,

@@ -1,6 +1,6 @@
 // Caches the app shell so Jarvis opens with no internet.
 // AI model weights are cached separately by WebLLM (Cache Storage).
-const VERSION = "jarvis-v1";
+const VERSION = "jarvis-v2";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "skills.js", "store.js", "brain.js", "voice.js",
   "llm-worker.js", "vendor/web-llm.js", "manifest.webmanifest",
@@ -8,7 +8,7 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
@@ -23,13 +23,12 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return; // let model downloads pass through
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((hit) => {
-      const net = fetch(e.request).then((res) => {
+    fetch(e.request, { cache: "no-cache" })
+      .then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(e.request, copy)); }
         return res;
-      }).catch(() => hit);
-      return hit || net;
-    }),
+      })
+      .catch(() => caches.match(e.request, { ignoreSearch: true })),
   );
 });
 

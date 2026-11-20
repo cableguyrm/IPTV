@@ -27,6 +27,7 @@ let history = store.get("history", []); // [{role, content}]
 let gpu = { ok: false };
 let busy = false;
 let listening = false;
+let lostCount = 0;
 
 const title = () => settings.userTitle?.trim() || settings.userName || "sir";
 
@@ -181,22 +182,41 @@ async function handle(text, fromVoice = false) {
       ...history.slice(-12),
       { role: "user", content: text },
     ];
-    const bubble = addMsg("bot", "");
-    bubble.div.classList.add("typing");
-    const speaker = new voice.SentenceSpeaker(settings.speakReplies);
     let out = "";
-    try {
-      out = await brain.chat(msgs, (t) => { out = t; bubble.set(t); speaker.push(t); });
-    } finally {
-      bubble.div.classList.remove("typing");
+    let speaker;
+    for (let attempt = 0; ; attempt++) {
+      const bubble = addMsg("bot", "");
+      bubble.div.classList.add("typing");
+      speaker = new voice.SentenceSpeaker(settings.speakReplies);
+      out = "";
+      try {
+        out = await brain.chat(msgs, (t) => { out = t; bubble.set(t); speaker.push(t); });
+        bubble.div.classList.remove("typing");
+        if (!out.trim()) bubble.set("…");
+        lostCount = 0;
+        break;
+      } catch (e) {
+        bubble.div.remove();
+        if (!e.lost || attempt > 0) throw e;
+        lostCount++;
+        addMsg("sys", "The phone's GPU dropped the AI brain. Reloading it…");
+        await loadBrain();
+        if (!brain.isLoaded()) throw new Error("the AI brain couldn't be reloaded");
+      }
     }
     speaker.flush(out);
-    if (!out.trim()) bubble.set("…");
     remember("user", text);
     remember("assistant", out);
   } catch (e) {
     console.error(e);
-    addMsg("bot", `I ran into a problem: ${e.message || e}`);
+    if (e.lost || brain.isLostError(e)) {
+      brain.forget();
+      setPill();
+      const big = /3B|2b|1\.5B|1\.7B/i.test(settings.model);
+      addMsg("bot", `The AI brain keeps crashing on this phone's GPU${big ? " — this model is probably too large for it" : ""}. ${big ? "Open ⚙ Settings, choose “Llama 3.2 1B” or “Qwen 2.5 0.5B”, and tap Download & load." : "Close other apps and try again, or pick a smaller model in ⚙ Settings."}`);
+    } else {
+      addMsg("bot", `I ran into a problem: ${e.message || e}`);
+    }
   } finally {
     busy = false;
     refreshIdle();
@@ -436,7 +456,11 @@ async function boot() {
   setPill();
   refreshIdle();
 
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW", e));
+  if ("serviceWorker" in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController) location.reload(); });
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW", e));
+  }
 
   if (gpu.ok && settings.autoload && (await brain.isCached(settings.model))) loadBrain();
   else if (gpu.ok && !history.length) addMsg("sys", "Tip: open ⚙ Settings → “Download & load” to give me a full AI brain that runs offline.");
