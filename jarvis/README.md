@@ -36,14 +36,13 @@ You need to open the app once over HTTPS (or `localhost`). Pick one option.
 4. Open that link in Chrome on your phone, then tap **⋮ → Install app** (or the ⬇ button in Jarvis). On iPhone, use **Share → Add to Home Screen**.
 
 ### Option B: 100% on the phone with Termux (Android)
-1. Install **Termux** from F-Droid.
-2. Run:
+1. Install **Termux** from F-Droid (the Play Store version is outdated).
+2. Open Termux and paste:
    ```sh
-   pkg install git python
-   git clone -b ccr-e7fc0a39-01yh0k https://github.com/cableguyrm/IPTV
-   sh IPTV/jarvis/serve.sh
+   curl -fsSL https://raw.githubusercontent.com/cableguyrm/IPTV/ccr-e7fc0a39-01yh0k/jarvis/install-termux.sh | bash
    ```
-3. Open `http://localhost:8080` in Chrome and install it.
+3. Chrome opens `http://localhost:8080`. Tap **⋮ → Install app** (or **Add to Home screen**).
+4. Next time, open Termux, type `jarvis`, then tap the Jarvis icon on your home screen. Run the installer again to update.
 
 ## First run
 1. Open Jarvis, tap **⚙ → Download & load**. *Llama 3.2 1B* is the recommended model. Use Wi-Fi: this is a one-time download.
