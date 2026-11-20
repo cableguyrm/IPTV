@@ -34,7 +34,11 @@ export async function gpuInfo() {
   }
 }
 
-export const modelId = (base) => `${base}-${f16 === false ? "q4f32_1" : "q4f16_1"}-MLC`;
+// forceF32: avoid 16-bit GPU shaders (buggy on some mobile drivers, e.g. Adreno).
+let forceF32 = false;
+export const setForceF32 = (v) => { forceF32 = !!v; };
+export const usingF16 = () => !forceF32 && f16 !== false;
+export const modelId = (base) => `${base}-${usingF16() ? "q4f16_1" : "q4f32_1"}-MLC`;
 export const isLoaded = () => !!engine;
 export const loadedModel = () => loadedId;
 

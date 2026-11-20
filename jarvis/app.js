@@ -13,16 +13,17 @@ const els = {
   autoload: $("autoload"), gpuNote: $("gpu-note"), storageNote: $("storage-note"),
   voiceSelect: $("voice-select"), rate: $("rate"), pitch: $("pitch"),
   speakReplies: $("speak-replies"), wakeWord: $("wake-word"), testVoice: $("test-voice"),
-  userName: $("user-name"), userTitle: $("user-title"), clearChat: $("clear-chat"), clearAll: $("clear-all"),
+  userName: $("user-name"), userTitle: $("user-title"), compat: $("compat"), clearChat: $("clear-chat"), clearAll: $("clear-all"),
 };
 
 // ---------------- State ----------------
 const DEFAULTS = {
   model: brain.DEFAULT_MODEL, autoload: true, voiceURI: "", rate: 1, pitch: 0.9,
-  speakReplies: true, wakeWord: false, userName: "", userTitle: "sir",
+  speakReplies: true, wakeWord: false, forceF32: false, userName: "", userTitle: "sir",
 };
 const settings = { ...DEFAULTS, ...store.get("settings", {}) };
 const saveSettings = () => store.set("settings", settings);
+brain.setForceF32(settings.forceF32);
 let history = store.get("history", []); // [{role, content}]
 let gpu = { ok: false };
 let busy = false;
@@ -111,13 +112,19 @@ function askNotify() {
 brain.onLost((why) => {
   console.warn("GPU lost:", why);
   setPill();
-  addMsg("sys", `The phone's GPU reset and dropped the AI brain${shortReason(why)}. I'll reload it for your next question.`);
+  if (busy) return; // the active request handles recovery itself
+  if (brain.usingF16()) {
+    settings.forceF32 = true; saveSettings(); brain.setForceF32(true);
+    if (els.compat) els.compat.checked = true;
+    addMsg("sys", `The phone's GPU reset${shortReason(why)}. Switching to GPU compatibility mode (32-bit), which avoids a known driver problem. This needs a one-time download of the 32-bit model.`);
+  } else {
+    addMsg("sys", `The phone's GPU reset${shortReason(why)}. I'll reload the AI brain for your next question.`);
+  }
   if (!busy && settings.autoload && !document.hidden) loadBrain();
 });
 function shortReason(t) {
-  const m = String(t || "").match(/reason[^a-z]*([a-z_]+)|message[":\s]+([^"}]{3,120})/i);
-  const r = m ? (m[1] || m[2]) : "";
-  return r ? ` (${r.trim()})` : "";
+  const m = String(t || "").match(/message=([^\n]{3,160})/);
+  return m && !/\(none\)/.test(m[1]) ? ` (${m[1].trim()})` : "";
 }
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && !brain.isLoaded() && !busy && gpu.ok && settings.autoload && lostOnce) loadBrain();
@@ -217,7 +224,12 @@ async function handle(text, fromVoice = false) {
         bubble.div.remove();
         if (!e.lost || attempt > 0) throw e;
         lostCount++;
-        addMsg("sys", "The phone's GPU dropped the AI brain. Reloading it…");
+        if (brain.usingF16()) {
+          settings.forceF32 = true; saveSettings(); brain.setForceF32(true);
+          addMsg("sys", "The phone's GPU reset. Switching to GPU compatibility mode (32-bit) and reloading — this needs a one-time download of the 32-bit model…");
+        } else {
+          addMsg("sys", "The phone's GPU dropped the AI brain. Reloading it…");
+        }
         await loadBrain();
         if (!brain.isLoaded()) throw new Error("the AI brain couldn't be reloaded");
       }
@@ -378,6 +390,7 @@ async function updateStorageNote() {
 function bindSettings() {
   els.settingsBtn.onclick = async () => {
     els.autoload.checked = settings.autoload;
+    els.compat.checked = settings.forceF32;
     els.rate.value = settings.rate;
     els.pitch.value = settings.pitch;
     els.speakReplies.checked = settings.speakReplies;
@@ -385,7 +398,7 @@ function bindSettings() {
     els.userName.value = settings.userName;
     els.userTitle.value = settings.userTitle;
     els.gpuNote.textContent = gpu.ok
-      ? `WebGPU ready${gpu.f16 ? " (fast 16-bit mode)" : ""}. Pick a model, then download it once — it's cached for offline use.`
+      ? `WebGPU ready${brain.usingF16() ? " (fast 16-bit mode)" : " (32-bit compatibility mode)"}. Pick a model, then download it once — it's cached for offline use.`
       : gpu.reason;
     els.gpuNote.className = gpu.ok ? "note" : "note warn";
     els.loadModelBtn.disabled = !gpu.ok;
@@ -404,6 +417,10 @@ function bindSettings() {
     updateStorageNote();
   };
   els.autoload.onchange = () => { settings.autoload = els.autoload.checked; saveSettings(); };
+  els.compat.onchange = async () => {
+    settings.forceF32 = els.compat.checked; saveSettings(); brain.setForceF32(settings.forceF32);
+    await brain.unload(); setPill(); populateModels();
+  };
   els.voiceSelect.onchange = () => { settings.voiceURI = els.voiceSelect.value; saveSettings(); voice.setVoiceOptions({ voiceURI: settings.voiceURI }); };
   els.rate.oninput = () => { settings.rate = +els.rate.value; saveSettings(); voice.setVoiceOptions({ rate: settings.rate }); };
   els.pitch.oninput = () => { settings.pitch = +els.pitch.value; saveSettings(); voice.setVoiceOptions({ pitch: settings.pitch }); };
