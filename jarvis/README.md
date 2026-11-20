@@ -16,7 +16,11 @@ Jarvis is an installable web app (PWA). After the first setup, **everything runs
 - Jokes, coin flips, dice
 
 **With the AI brain loaded (one-time download, then offline):**
-- General chat, explanations, writing, brainstorming and advice, using a small local language model (Llama 3.2, Qwen, Gemma) that runs on the phone's GPU through WebLLM/WebGPU.
+- General chat, explanations, writing, brainstorming and advice, using a small local language model (Llama 3.2, Qwen, Gemma).
+- Two engines (⚙ Settings → AI engine):
+  - **Phone GPU:** WebLLM/WebGPU. The fastest, but some phones' browser GPU drivers reset under load.
+  - **Phone CPU:** llama.cpp in WebAssembly, using all cores. The most reliable, and needs no GPU.
+- If the GPU resets, Jarvis falls back automatically: 16-bit GPU → 32-bit GPU → CPU.
 - Replies stream in and are spoken sentence by sentence.
 
 ## Requirements
@@ -65,7 +69,10 @@ You need to open the app once over HTTPS (or `localhost`). Pick one option.
 | `index.html`, `style.css` | UI (arc reactor, chat, settings) |
 | `app.js` | Main controller: conversation, voice loop, settings |
 | `skills.js` | Offline rule-based abilities |
-| `brain.js`, `llm-worker.js` | On-device LLM (WebLLM in a Web Worker) |
+| `brain.js`, `llm-worker.js` | On-device LLM: GPU engine (WebLLM in a Web Worker) and engine switching |
+| `cpu.js` | CPU engine (wllama / llama.cpp WebAssembly) |
+| `serve.py` | Local server with the headers that enable multi-core CPU inference |
 | `voice.js` | Speech recognition and text-to-speech |
 | `sw.js`, `manifest.webmanifest` | Offline caching and install |
 | `vendor/web-llm.js` | WebLLM 0.2.86 (Apache-2.0), bundled so the app works offline |
+| `vendor/wllama.js`, `vendor/wllama.wasm` | wllama 3.8.1 (MIT), bundled |

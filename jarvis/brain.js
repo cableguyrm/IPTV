@@ -1,4 +1,6 @@
-// On-device language model, powered by WebLLM + WebGPU.
+// On-device language model. Two engines:
+//  - GPU: WebLLM + WebGPU (fastest)
+//  - CPU: llama.cpp in WebAssembly (cpu.js) — works when the GPU driver is unstable
 // Weights are downloaded once, then cached on the phone for offline use.
 
 export const MODELS = [
@@ -19,6 +21,11 @@ let engine = null;
 let loadedId = null;
 let f16 = null;
 let worker = null;
+import * as cpu from "./cpu.js";
+let mode = "gpu"; // "gpu" | "cpu"
+export const setMode = (m) => { mode = m === "cpu" ? "cpu" : "gpu"; };
+export const getMode = () => mode;
+export const cpuThreads = cpu.threads;
 
 const lib = async () => (webllm ??= await import("./vendor/web-llm.js"));
 
@@ -39,20 +46,19 @@ let forceF32 = false;
 export const setForceF32 = (v) => { forceF32 = !!v; };
 export const usingF16 = () => !forceF32 && f16 !== false;
 export const modelId = (base) => `${base}-${usingF16() ? "q4f16_1" : "q4f32_1"}-MLC`;
-export const isLoaded = () => !!engine;
-export const loadedModel = () => loadedId;
+const g_isLoaded = () => !!engine;
 
-export async function isCached(base) {
+async function g_isCached(base) {
   try { return await (await lib()).hasModelInCache(modelId(base)); } catch { return false; }
 }
 
-export async function deleteModel(base) {
+async function g_deleteModel(base) {
   const id = modelId(base);
-  if (loadedId === id) await unload();
+  if (loadedId === id) await g_unload();
   await (await lib()).deleteModelAllInfoInCache(id);
 }
 
-export async function unload() {
+async function g_unload() {
   try { await engine?.unload(); } catch { /* ignore */ }
   try { worker?.terminate(); } catch { /* ignore */ }
   worker = null;
@@ -63,10 +69,10 @@ export async function unload() {
 // Only one load at a time: a second call waits for the first instead of
 // putting a second copy of the model in GPU memory.
 let loading = null;
-export function load(base, onProgress) {
+function g_load(base, onProgress) {
   const id = modelId(base);
   if (engine && loadedId === id) return Promise.resolve();
-  if (loading) return loading.id === id ? loading.p : loading.p.catch(() => {}).then(() => load(base, onProgress));
+  if (loading) return loading.id === id ? loading.p : loading.p.catch(() => {}).then(() => g_load(base, onProgress));
   const p = doLoad(base, onProgress).finally(() => { loading = null; });
   loading = { id, p };
   return p;
@@ -75,7 +81,7 @@ export const isLoading = () => !!loading;
 
 async function doLoad(base, onProgress) {
   const id = modelId(base);
-  await unload();
+  await g_unload();
   const { CreateWebWorkerMLCEngine } = await lib();
   worker = new Worker(new URL("./llm-worker.js", import.meta.url), { type: "module" });
   engine = await CreateWebWorkerMLCEngine(worker, id, {
@@ -106,6 +112,7 @@ export function isLostError(e) {
 
 // Forget a dead engine without touching it (calling into it would throw again).
 export function forget() {
+  if (pendingReject) { const err = new Error("GPU device was lost"); err.lost = true; pendingReject(err); pendingReject = null; }
   const w = engine;
   engine = null;
   loadedId = null;
@@ -114,16 +121,22 @@ export function forget() {
   worker = null;
 }
 
-export function interrupt() { try { engine?.interruptGenerate(); } catch { /* ignore */ } }
+function g_interrupt() { try { engine?.interruptGenerate(); } catch { /* ignore */ } }
 
 // Streams a reply. onToken receives the visible text so far.
-export async function chat(messages, onToken) {
+let pendingReject = null;
+async function g_chat(messages, onToken) {
   if (!engine) throw new Error("Model not loaded");
   try {
-    return await chatInner(messages, onToken);
+    // If the GPU is lost mid-reply the worker is terminated; this makes the
+    // waiting request fail fast instead of hanging forever.
+    const lost = new Promise((_, rej) => { pendingReject = rej; });
+    return await Promise.race([chatInner(messages, onToken), lost]);
   } catch (e) {
     if (isLostError(e)) { forget(); e.lost = true; }
     throw e;
+  } finally {
+    pendingReject = null;
   }
 }
 
@@ -146,3 +159,17 @@ async function chatInner(messages, onToken) {
 }
 
 const clean = (s) => s.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").replace(/^\s+/, "");
+
+// ---------------- Engine-agnostic API ----------------
+export const isLoaded = () => (mode === "cpu" ? cpu.isLoaded() : g_isLoaded());
+export const loadedModel = () => (mode === "cpu" ? (cpu.loadedModel() ? `${cpu.loadedModel()} (CPU)` : null) : loadedId);
+export const isCached = (base) => (mode === "cpu" ? cpu.isCached(base) : g_isCached(base));
+export const deleteModel = (base) => (mode === "cpu" ? cpu.deleteModel(base) : g_deleteModel(base));
+export const interrupt = () => (mode === "cpu" ? cpu.interrupt() : g_interrupt());
+export const chat = (messages, onToken) => (mode === "cpu" ? cpu.chat(messages, onToken) : g_chat(messages, onToken));
+export async function unload() { await g_unload(); await cpu.unload(); }
+export async function load(base, onProgress) {
+  if (mode === "cpu") { await g_unload(); return cpu.load(base, onProgress); }
+  await cpu.unload();
+  return g_load(base, onProgress);
+}

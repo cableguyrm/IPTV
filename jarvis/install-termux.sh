@@ -23,8 +23,7 @@ cat > "$PREFIX/bin/jarvis" <<EOS
 cd "$DIR/jarvis"
 termux-wake-lock 2>/dev/null || true
 (sleep 2; termux-open-url http://localhost:8080 2>/dev/null) &
-echo "Jarvis is running at http://localhost:8080 — keep Termux open. Ctrl+C to stop."
-exec python -m http.server 8080 --bind 127.0.0.1
+exec python "$DIR/jarvis/serve.py" 8080
 EOS
 chmod +x "$PREFIX/bin/jarvis"
 

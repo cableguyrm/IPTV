@@ -287,6 +287,20 @@ const SKILLS = [
   },
   { re: /forget everything|clear (your )?memory/, run: () => { store.set("memories", []); return "Memory wiped."; } },
 
+  // Live info the offline brain can't know — hand off to a real source
+  {
+    re: /\b(weather|forecast|temperature|raining|snowing)\b(?:.*?\b(?:in|for|at)\s+(.+))?/,
+    run: (m, ctx) => {
+      const place = m[2]?.replace(/\b(today|tomorrow|right now|now|this week)\b/g, "").trim();
+      const q = `weather ${place || ""}`.trim();
+      return { reply: `I can't see live weather while offline, ${ctx.title()}, so here's the current forecast${place ? ` for ${place}` : ""}.`, open: `https://www.google.com/search?q=${encodeURIComponent(q)}` };
+    },
+  },
+  {
+    re: /\b(news|headlines|stock price|score of|exchange rate)\b/,
+    run: (m, ctx) => ({ reply: `That needs live data, ${ctx.title()}. Opening a search for it.`, open: `https://www.google.com/search?q=${encodeURIComponent(m.input)}` }),
+  },
+
   // Phone actions
   {
     re: /^(call|dial|phone)\s+([+\d][\d\s\-()]{2,})$/,

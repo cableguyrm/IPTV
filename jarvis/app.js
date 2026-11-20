@@ -13,17 +13,18 @@ const els = {
   autoload: $("autoload"), gpuNote: $("gpu-note"), storageNote: $("storage-note"),
   voiceSelect: $("voice-select"), rate: $("rate"), pitch: $("pitch"),
   speakReplies: $("speak-replies"), wakeWord: $("wake-word"), testVoice: $("test-voice"),
-  userName: $("user-name"), userTitle: $("user-title"), compat: $("compat"), clearChat: $("clear-chat"), clearAll: $("clear-all"),
+  userName: $("user-name"), userTitle: $("user-title"), compat: $("compat"), engine: $("engine-select"), clearChat: $("clear-chat"), clearAll: $("clear-all"),
 };
 
 // ---------------- State ----------------
 const DEFAULTS = {
   model: brain.DEFAULT_MODEL, autoload: true, voiceURI: "", rate: 1, pitch: 0.9,
-  speakReplies: true, wakeWord: false, forceF32: false, userName: "", userTitle: "sir",
+  speakReplies: true, wakeWord: false, forceF32: false, engine: "", userName: "", userTitle: "sir",
 };
 const settings = { ...DEFAULTS, ...store.get("settings", {}) };
 const saveSettings = () => store.set("settings", settings);
 brain.setForceF32(settings.forceF32);
+const canRun = () => settings.engine === "cpu" || gpu.ok;
 let history = store.get("history", []); // [{role, content}]
 let gpu = { ok: false };
 let busy = false;
@@ -83,9 +84,9 @@ function addMsg(role, text = "", { link } = {}) {
 function setPill() {
   if (brain.isLoaded()) {
     const m = brain.MODELS.find((x) => brain.loadedModel()?.startsWith(x.base));
-    els.pill.textContent = `AI online · ${m ? m.base.replace(/-Instruct|-it/, "") : "local"}`;
+    els.pill.textContent = `AI online · ${m ? m.base.replace(/-Instruct|-it/, "") : "local"}${brain.getMode() === "cpu" ? " · CPU" : ""}`;
     els.pill.className = "pill ok";
-  } else if (!gpu.ok) {
+  } else if (!canRun()) {
     els.pill.textContent = "Offline core · no GPU";
     els.pill.className = "pill warn";
   } else {
@@ -109,28 +110,35 @@ function askNotify() {
 }
 
 // ---------------- GPU loss recovery ----------------
+let lostOnce = false;
+// After a GPU reset: 16-bit GPU → 32-bit GPU → CPU engine.
+function escalate(why = "") {
+  if (brain.getMode() === "gpu" && brain.usingF16()) {
+    settings.forceF32 = true; saveSettings(); brain.setForceF32(true);
+    return `The phone's GPU reset${shortReason(why)}. Switching to GPU compatibility mode (32-bit) and reloading — a one-time download of the 32-bit model…`;
+  }
+  if (brain.getMode() === "gpu") {
+    settings.engine = "cpu"; saveSettings(); brain.setMode("cpu");
+    return `The phone's GPU keeps resetting${shortReason(why)}, so I'm switching to the CPU engine, which doesn't use the GPU at all. This needs a one-time download of the CPU version of the model…`;
+  }
+  return "The AI engine stopped. Reloading it…";
+}
 brain.onLost((why) => {
   console.warn("GPU lost:", why);
+  lostOnce = true;
   setPill();
   if (busy) return; // the active request handles recovery itself
-  if (brain.usingF16()) {
-    settings.forceF32 = true; saveSettings(); brain.setForceF32(true);
-    if (els.compat) els.compat.checked = true;
-    addMsg("sys", `The phone's GPU reset${shortReason(why)}. Switching to GPU compatibility mode (32-bit), which avoids a known driver problem. This needs a one-time download of the 32-bit model.`);
-  } else {
-    addMsg("sys", `The phone's GPU reset${shortReason(why)}. I'll reload the AI brain for your next question.`);
-  }
-  if (!busy && settings.autoload && !document.hidden) loadBrain();
+  addMsg("sys", escalate(why));
+  if (settings.autoload && !document.hidden) loadBrain();
 });
 function shortReason(t) {
   const m = String(t || "").match(/message=([^\n]{3,160})/);
   return m && !/\(none\)/.test(m[1]) ? ` (${m[1].trim()})` : "";
 }
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && !brain.isLoaded() && !busy && gpu.ok && settings.autoload && lostOnce) loadBrain();
+  if (!document.hidden && !brain.isLoaded() && !busy && canRun() && settings.autoload && lostOnce) loadBrain();
 });
-let lostOnce = false;
-brain.onLost(() => { lostOnce = true; });
+
 
 // ---------------- Speech output ----------------
 let speakingNow = false;
@@ -190,13 +198,13 @@ async function handle(text, fromVoice = false) {
       return;
     }
 
-    if (!brain.isLoaded() && gpu.ok && settings.autoload && (await brain.isCached(settings.model))) {
+    if (!brain.isLoaded() && canRun() && settings.autoload && (await brain.isCached(settings.model))) {
       await loadBrain();
     }
     if (!brain.isLoaded()) {
-      const reply = gpu.ok
+      const reply = canRun()
         ? `My offline skills don't cover that, ${title()}. Open Settings and load the AI brain (a one-time download) and I can answer anything, fully on this phone. Say “help” to see what I can do right now.`
-        : `My offline skills don't cover that, ${title()}, and this browser can't run the AI brain (it needs WebGPU — try the latest Chrome). Say “help” to see what I can do.`;
+        : `My offline skills don't cover that, ${title()}, but the AI brain isn't loaded. Open ⚙ Settings, choose the CPU engine, and tap Download & load. Say “help” to see what I can do.`;
       addMsg("bot", reply);
       say(reply);
       return;
@@ -224,12 +232,7 @@ async function handle(text, fromVoice = false) {
         bubble.div.remove();
         if (!e.lost || attempt > 0) throw e;
         lostCount++;
-        if (brain.usingF16()) {
-          settings.forceF32 = true; saveSettings(); brain.setForceF32(true);
-          addMsg("sys", "The phone's GPU reset. Switching to GPU compatibility mode (32-bit) and reloading — this needs a one-time download of the 32-bit model…");
-        } else {
-          addMsg("sys", "The phone's GPU dropped the AI brain. Reloading it…");
-        }
+        addMsg("sys", escalate(brain.lastError()));
         await loadBrain();
         if (!brain.isLoaded()) throw new Error("the AI brain couldn't be reloaded");
       }
@@ -260,7 +263,7 @@ function loadBrain() {
   return (brainLoad ??= loadBrainInner().finally(() => { brainLoad = null; }));
 }
 async function loadBrainInner() {
-  if (!gpu.ok) { addMsg("sys", gpu.reason); return; }
+  if (!canRun()) { addMsg("sys", `${gpu.reason} Switch the AI engine to CPU in ⚙ Settings.`); return; }
   const cached = await brain.isCached(settings.model);
   els.loadBar.hidden = false;
   els.loadModelBtn.disabled = true;
@@ -380,6 +383,20 @@ function populateVoices() {
   }
   els.voiceSelect.value = settings.voiceURI || list[0].voiceURI;
 }
+function updateEngineNote() {
+  if (brain.getMode() === "cpu") {
+    const t = brain.cpuThreads();
+    els.gpuNote.textContent = `CPU engine (llama.cpp) using ${t} thread${t > 1 ? "s" : ""}${t === 1 ? " — start Jarvis with the latest installer for multi-core speed" : ""}. Doesn't use the GPU, so it's the most reliable. Pick a model and download it once.`;
+    els.gpuNote.className = "note";
+  } else {
+    els.gpuNote.textContent = gpu.ok
+      ? `GPU engine ready${brain.usingF16() ? " (fast 16-bit mode)" : " (32-bit compatibility mode)"}. Pick a model, then download it once — it's cached for offline use.`
+      : `${gpu.reason} Choose the CPU engine instead.`;
+    els.gpuNote.className = gpu.ok ? "note" : "note warn";
+  }
+  els.compat.parentElement.hidden = brain.getMode() === "cpu";
+  els.loadModelBtn.disabled = !canRun();
+}
 async function updateStorageNote() {
   try {
     const est = await navigator.storage?.estimate?.();
@@ -391,17 +408,14 @@ function bindSettings() {
   els.settingsBtn.onclick = async () => {
     els.autoload.checked = settings.autoload;
     els.compat.checked = settings.forceF32;
+    els.engine.value = brain.getMode();
     els.rate.value = settings.rate;
     els.pitch.value = settings.pitch;
     els.speakReplies.checked = settings.speakReplies;
     els.wakeWord.checked = settings.wakeWord;
     els.userName.value = settings.userName;
     els.userTitle.value = settings.userTitle;
-    els.gpuNote.textContent = gpu.ok
-      ? `WebGPU ready${brain.usingF16() ? " (fast 16-bit mode)" : " (32-bit compatibility mode)"}. Pick a model, then download it once — it's cached for offline use.`
-      : gpu.reason;
-    els.gpuNote.className = gpu.ok ? "note" : "note warn";
-    els.loadModelBtn.disabled = !gpu.ok;
+    updateEngineNote();
     populateVoices();
     updateStorageNote();
     els.settings.showModal();
@@ -417,6 +431,11 @@ function bindSettings() {
     updateStorageNote();
   };
   els.autoload.onchange = () => { settings.autoload = els.autoload.checked; saveSettings(); };
+  els.engine.onchange = async () => {
+    settings.engine = els.engine.value; saveSettings();
+    await brain.unload(); brain.setMode(settings.engine);
+    setPill(); updateEngineNote(); populateModels();
+  };
   els.compat.onchange = async () => {
     settings.forceF32 = els.compat.checked; saveSettings(); brain.setForceF32(settings.forceF32);
     await brain.unload(); setPill(); populateModels();
@@ -493,6 +512,8 @@ async function boot() {
   if (history.length) restoreHistory(); else welcome();
 
   gpu = await brain.gpuInfo();
+  if (!settings.engine) settings.engine = gpu.ok ? "gpu" : "cpu";
+  brain.setMode(settings.engine);
   setPill();
   refreshIdle();
 
@@ -502,8 +523,8 @@ async function boot() {
     navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW", e));
   }
 
-  if (gpu.ok && settings.autoload && (await brain.isCached(settings.model))) loadBrain();
-  else if (gpu.ok && !history.length) addMsg("sys", "Tip: open ⚙ Settings → “Download & load” to give me a full AI brain that runs offline.");
+  if (canRun() && settings.autoload && (await brain.isCached(settings.model))) loadBrain();
+  else if (!history.length) addMsg("sys", "Tip: open ⚙ Settings → “Download & load” to give me a full AI brain that runs offline.");
 
   if (settings.wakeWord) wakeLoop();
   else if (new URLSearchParams(location.search).has("listen")) listenAndHandle();

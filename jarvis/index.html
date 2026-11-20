@@ -68,6 +68,12 @@
       <fieldset>
         <legend>AI brain (runs on this phone)</legend>
         <p id="gpu-note" class="note"></p>
+        <label>AI engine
+          <select id="engine-select">
+            <option value="gpu">Phone GPU — fastest (WebGPU)</option>
+            <option value="cpu">Phone CPU — most reliable (llama.cpp)</option>
+          </select>
+        </label>
         <label>Model
           <select id="model-select"></select>
         </label>
@@ -105,7 +111,7 @@
           <button type="button" id="clear-all" class="btn danger">Erase all memory</button>
         </div>
         <p class="note">Everything (chat, notes, settings, the AI model) is stored only on this device.</p>
-        <p class="note">Jarvis build 5</p>
+        <p class="note">Jarvis build 6</p>
       </fieldset>
     </form>
   </dialog>
