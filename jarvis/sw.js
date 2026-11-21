@@ -1,6 +1,6 @@
 // Caches the app shell so Jarvis opens with no internet.
 // AI model weights are cached separately by WebLLM (Cache Storage).
-const VERSION = "jarvis-v5";
+const VERSION = "jarvis-v6";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "skills.js", "store.js", "brain.js", "voice.js",
   "llm-worker.js", "cpu.js", "vendor/web-llm.js", "vendor/wllama.js", "vendor/wllama.wasm", "manifest.webmanifest",
@@ -22,6 +22,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return; // let model downloads pass through
+  if (/\/(version\.json|reset\.html)$/.test(url.pathname)) return; // always from the server
   e.respondWith(
     fetch(e.request, { cache: "no-cache" })
       .then((res) => {

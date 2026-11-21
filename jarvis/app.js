@@ -3,6 +3,7 @@ import { handleLocal } from "./skills.js";
 import * as brain from "./brain.js";
 import * as voice from "./voice.js";
 
+export const BUILD = 7;
 const $ = (id) => document.getElementById(id);
 const els = {
   log: $("log"), input: $("input"), composer: $("composer"), mic: $("mic-btn"),
@@ -249,7 +250,7 @@ async function handle(text, fromVoice = false) {
       const why = brain.lastError() ? `\n\nGPU said: ${brain.lastError().slice(0, 200)}` : "";
       addMsg("bot", `The AI brain keeps crashing on this phone's GPU${big ? " — this model is probably too large for it" : ""}. ${big ? "Open ⚙ Settings, choose “Llama 3.2 1B” or “Qwen 2.5 0.5B”, and tap Download & load." : "Close other apps and try again, or pick a smaller model in ⚙ Settings."}${why}`);
     } else {
-      addMsg("bot", `I ran into a problem: ${e.message || e}${brain.lastError() ? `\n\nGPU said: ${brain.lastError().slice(0, 200)}` : ""}`);
+      addMsg("bot", `I ran into a problem (build ${BUILD}): ${e.message || e}${brain.lastError() ? `\n\nGPU said: ${brain.lastError().slice(0, 200)}` : ""}`);
     }
   } finally {
     busy = false;
@@ -416,6 +417,7 @@ function bindSettings() {
     els.userName.value = settings.userName;
     els.userTitle.value = settings.userTitle;
     updateEngineNote();
+    $("build-note").textContent = `Jarvis build ${BUILD} · ${brain.getMode().toUpperCase()} engine`;
     populateVoices();
     updateStorageNote();
     els.settings.showModal();
@@ -493,7 +495,22 @@ function restoreHistory() {
   for (const m of history.slice(-20)) addMsg(m.role === "user" ? "user" : "bot", m.content);
 }
 
+// If the server has a newer build than the code running, drop the stale cache.
+async function checkForUpdate() {
+  try {
+    const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
+    const { build } = await r.json();
+    if (build > BUILD) {
+      // Guard against a reload loop if the server's files are mismatched.
+      let tried = false;
+      try { tried = sessionStorage.getItem("jarvis:reset") === String(build); sessionStorage.setItem("jarvis:reset", String(build)); } catch { /* ignore */ }
+      if (!tried) location.replace("reset.html");
+    }
+  } catch { /* offline or server not running: keep the cached copy */ }
+}
+
 async function boot() {
+  checkForUpdate();
   bindSettings();
   els.composer.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -512,7 +529,8 @@ async function boot() {
   if (history.length) restoreHistory(); else welcome();
 
   gpu = await brain.gpuInfo();
-  if (!settings.engine) settings.engine = gpu.ok ? "gpu" : "cpu";
+  // Qualcomm (Adreno) GPUs reset under WebLLM in Chrome, so default those to CPU.
+  if (!settings.engine) { settings.engine = gpu.ok && gpu.vendor !== "qualcomm" ? "gpu" : "cpu"; saveSettings(); }
   brain.setMode(settings.engine);
   setPill();
   refreshIdle();

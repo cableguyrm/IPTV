@@ -35,7 +35,8 @@ export async function gpuInfo() {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) return { ok: false, reason: "WebGPU is present but no compatible GPU adapter was found on this phone." };
     f16 = adapter.features.has("shader-f16");
-    return { ok: true, f16 };
+    const vendor = (adapter.info?.vendor || "").toLowerCase();
+    return { ok: true, f16, vendor };
   } catch (e) {
     return { ok: false, reason: `WebGPU error: ${e.message}` };
   }

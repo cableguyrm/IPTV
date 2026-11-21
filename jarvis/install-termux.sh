@@ -22,7 +22,7 @@ cat > "$PREFIX/bin/jarvis" <<EOS
 #!/data/data/com.termux/files/usr/bin/bash
 cd "$DIR/jarvis"
 termux-wake-lock 2>/dev/null || true
-(sleep 2; termux-open-url http://localhost:8080 2>/dev/null) &
+(sleep 2; termux-open-url http://localhost:8080/reset.html 2>/dev/null) &
 exec python "$DIR/jarvis/serve.py" 8080
 EOS
 chmod +x "$PREFIX/bin/jarvis"
